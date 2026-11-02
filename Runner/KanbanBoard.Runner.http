@@ -1,0 +1,86 @@
+###
+### Kanban board scenario
+### 1. Create a board
+### 2. Fetch it
+### 3. Create tickets
+### 4. Define a WIP limit
+### 5. Move a ticket through the columns
+### 6. Remove the WIP limit
+###
+
+# @name createBoard
+POST {{host}}/api/boards
+Content-Type: application/json
+
+{
+  "name": "Sprint 42"
+}
+
+###
+
+@boardId = 6c26a811-fce0-44b5-b203-9a5057748c8a
+
+GET {{host}}/api/boards/{{boardId}}
+Accept: application/json
+
+###
+
+# @name createTicket1
+POST {{host}}/api/boards/{{boardId}}/tickets
+Content-Type: application/json
+
+{
+  "title": "Implement login page",
+  "description": "Add email/password login form"
+}
+
+###
+
+# @name createTicket2
+POST {{host}}/api/boards/{{boardId}}/tickets
+Content-Type: application/json
+
+{
+  "title": "Write API documentation",
+  "description": "Document the board endpoints"
+}
+
+###
+
+@ticket1Id = e6646f0f-a9f4-4713-85c7-fd1b524ea6df
+@ticket2Id = 7f64685a-004b-4f41-a36e-27bf3a4988a8
+
+POST {{host}}/api/boards/{{boardId}}/define-wip-limit
+Content-Type: application/json
+
+{
+  "value": 1
+}
+
+###
+
+PUT {{host}}/api/boards/{{boardId}}/tickets/{{ticket1Id}}/move-in-todo-column
+
+###
+
+PUT {{host}}/api/boards/{{boardId}}/tickets/{{ticket1Id}}/move-in-ongoing-column
+
+###
+
+PUT {{host}}/api/boards/{{boardId}}/tickets/{{ticket2Id}}/move-in-ongoing-column
+
+###
+
+PUT {{host}}/api/boards/{{boardId}}/tickets/{{ticket1Id}}/move-in-done-column
+
+###
+
+DELETE {{host}}/api/boards/{{boardId}}/remove-wip-limit
+
+###
+
+GET {{host}}/api/boards/{{boardId}}
+Accept: application/json
+
+###
+
