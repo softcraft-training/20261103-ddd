@@ -1,3 +1,5 @@
+using KanbanBoard.Core.Domain.Events;
+
 namespace KanbanBoard.Core.Domain;
 
 public class Board(Guid id, WipLimit wipLimit, List<Ticket> tickets)
@@ -8,57 +10,70 @@ public class Board(Guid id, WipLimit wipLimit, List<Ticket> tickets)
     private readonly Column _ongoing = new(wipLimit, tickets.Where(x => x.IsInOngoingColumn()).ToList());
     private readonly Column _done = new(WipLimit.NoWipLimit(), tickets.Where(x => x.IsInDoneColumn()).ToList());
 
-    public IReadOnlyList<Ticket> Backlog => _backlog.Tickets;
-    public IReadOnlyList<Ticket> Todo => _todo.Tickets;
-    public IReadOnlyList<Ticket> Ongoing => _ongoing.Tickets;
-    public IReadOnlyList<Ticket> Done => _done.Tickets;
-
-    public static Board CreateEmptyBoard(Guid boardId, string name)
+    public static IDomainEvent[] CreateEmptyBoard(Guid boardId, string name)
     {
-        return new Board(boardId, WipLimit.NoWipLimit(), []);
+        return [ new BoardCreated(boardId, name) ];
     }
 
-    public void MoveTicketInTodoColumn(Guid ticketId)
+    public IDomainEvent[] MoveTicketInTodoColumn(Guid ticketId, DateTime now)
     {
         var ticket = _backlog.RemoveTicket(ticketId);
 
-        if (ticket == null) return;
+        if (ticket == null) return [];
 
         _todo.AddTicket(ticket);
+
+        return [ new TicketMovedInTodoColumn(Id, ticketId, now) ];
     }
 
-    public bool MoveTicketInOngoingColumn(Guid ticketId)
+    public IDomainEvent[] MoveTicketInOngoingColumn(Guid ticketId, DateTime now)
     {
         var ticket = _todo.RemoveTicket(ticketId);
 
-        if (ticket == null) return false;
+        if (ticket == null) return [];
 
         _ongoing.AddTicket(ticket);
 
-        return _ongoing.IsWipLimitExceeded();
+        if (_ongoing.IsWipLimitExceeded())
+            return [
+                new TicketMovedInOngoingColumn(Id, ticketId, now),
+                new WipLimitExceeded(Id)
+            ];
+
+        return [ new TicketMovedInOngoingColumn(Id, ticketId, now) ];
     }
 
-    public void MoveTicketInDoneColumn(Guid ticketId)
+    public IDomainEvent[] MoveTicketInDoneColumn(Guid ticketId, DateTime now)
     {
         var ticket = _ongoing.RemoveTicket(ticketId);
 
-        if (ticket == null) return;
+        if (ticket == null) return [];
 
         _done.AddTicket(ticket);
+
+        return [ new TicketMovedInDoneColumn(Id, ticketId, now) ];
     }
 
-    public void CreateTicket(Guid ticketId, string title, string description)
+    public IDomainEvent[] CreateTicket(Guid ticketId, string title, string description, DateTime now)
     {
         _backlog.AddTicket(new Ticket(ticketId, TicketStatus.Backlog));
+
+        return [ new TicketWritten(Id, ticketId, title, description, now) ];
     }
 
-    public void DefineWipLimit(WipLimit wipLimit)
+    public IDomainEvent[] DefineWipLimit(WipLimit wipLimit)
     {
         _ongoing.DefineWipLimit(wipLimit);
+
+        return [ new WipLimitDefined(Id, wipLimit.Value) ];
     }
 
-    public void RemoveWipLimit()
+    public IDomainEvent[] RemoveWipLimit()
     {
         _ongoing.RemoveWipLimit();
+
+        return [ new WipLimitRemoved(Id) ];
     }
 }
+
+

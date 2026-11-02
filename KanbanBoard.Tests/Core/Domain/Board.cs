@@ -1,5 +1,6 @@
 using FluentAssertions;
 using KanbanBoard.Core.Domain;
+using KanbanBoard.Core.Domain.Events;
 
 namespace KanbanBoard.Tests.Core.Domain;
 
@@ -8,138 +9,142 @@ public class BoardTests
     private static Ticket NewTicket(Guid id, TicketStatus status) => new(id, status);
 
     [Fact]
-    public void CreateEmptyBoard_ReturnsBoardWithEmptyColumns()
+    public void CreateEmptyBoard_ReturnsBoardCreatedEvent()
     {
         var boardId = Guid.NewGuid();
 
-        var board = Board.CreateEmptyBoard(boardId, "My board");
+        var events = Board.CreateEmptyBoard(boardId, "My board");
 
-        board.Id.Should().Be(boardId);
-        board.Backlog.Should().BeEmpty();
-        board.Todo.Should().BeEmpty();
-        board.Ongoing.Should().BeEmpty();
-        board.Done.Should().BeEmpty();
+        events.Should().Equal(new BoardCreated(boardId, "My board"));
     }
 
     [Fact]
-    public void CreateTicket_AddsTicketToBacklog()
+    public void CreateTicket_AddsTicketToBacklog_AndReturnsTicketWrittenEvent()
     {
         var board = new Board(Guid.NewGuid(), WipLimit.NoWipLimit(), []);
         var ticketId = Guid.NewGuid();
 
-        board.CreateTicket(ticketId, "title", "description");
+        var events = board.CreateTicket(ticketId, "title", "description", new DateTime(2026, 01, 01));
 
-        board.Backlog.Select(x => x.Id).Should().Equal(ticketId);
+        events.Should().Equal(new TicketWritten(board.Id, ticketId, "title", "description", new DateTime(2026, 01, 01)));
+
+        board.MoveTicketInTodoColumn(ticketId, new DateTime(2026, 01, 01)).Should().Equal(new TicketMovedInTodoColumn(board.Id, ticketId, new DateTime(2026, 01, 01)));
     }
 
     [Fact]
-    public void MoveTicketInTodoColumn_WhenTicketIsInBacklog_MovesIt()
+    public void MoveTicketInTodoColumn_WhenTicketIsInBacklog_MovesItAndReturnsEvent()
     {
         var ticketId = Guid.NewGuid();
         var board = new Board(Guid.NewGuid(), WipLimit.NoWipLimit(), [NewTicket(ticketId, TicketStatus.Backlog)]);
 
-        board.MoveTicketInTodoColumn(ticketId);
+        var events = board.MoveTicketInTodoColumn(ticketId, new DateTime(2026, 01, 01));
 
-        board.Backlog.Should().BeEmpty();
-        board.Todo.Select(x => x.Id).Should().Equal(ticketId);
+        events.Should().Equal(new TicketMovedInTodoColumn(board.Id, ticketId, new DateTime(2026, 01, 01)));
     }
 
     [Fact]
-    public void MoveTicketInTodoColumn_WhenTicketIsNotInBacklog_DoesNothing()
+    public void MoveTicketInTodoColumn_WhenTicketIsNotInBacklog_ReturnsNoEvents()
     {
         var ticketId = Guid.NewGuid();
         var board = new Board(Guid.NewGuid(), WipLimit.NoWipLimit(), [NewTicket(ticketId, TicketStatus.Done)]);
 
-        board.MoveTicketInTodoColumn(ticketId);
+        var events = board.MoveTicketInTodoColumn(ticketId, new DateTime(2026, 01, 01));
 
-        board.Todo.Should().BeEmpty();
-        board.Done.Select(x => x.Id).Should().Equal(ticketId);
+        events.Should().BeEmpty();
     }
 
     [Fact]
-    public void MoveTicketInOngoingColumn_WhenTicketIsInTodo_MovesIt()
+    public void MoveTicketInOngoingColumn_WhenTicketIsInTodo_MovesItAndReturnsEvent()
     {
         var ticketId = Guid.NewGuid();
         var board = new Board(Guid.NewGuid(), WipLimit.NoWipLimit(), [NewTicket(ticketId, TicketStatus.Todo)]);
 
-        board.MoveTicketInOngoingColumn(ticketId);
+        var events = board.MoveTicketInOngoingColumn(ticketId, new DateTime(2026, 01, 01));
 
-        board.Todo.Should().BeEmpty();
-        board.Ongoing.Select(x => x.Id).Should().Equal(ticketId);
+        events.Should().Equal(new TicketMovedInOngoingColumn(board.Id, ticketId, new DateTime(2026, 01, 01)));
     }
 
     [Fact]
-    public void MoveTicketInOngoingColumn_WhenTicketIsNotInTodo_DoesNothing()
+    public void MoveTicketInOngoingColumn_WhenTicketIsNotInTodo_ReturnsNoEvents()
     {
         var ticketId = Guid.NewGuid();
         var board = new Board(Guid.NewGuid(), WipLimit.NoWipLimit(), [NewTicket(ticketId, TicketStatus.Backlog)]);
 
-        board.MoveTicketInOngoingColumn(ticketId);
+        var events = board.MoveTicketInOngoingColumn(ticketId, new DateTime(2026, 01, 01));
 
-        board.Ongoing.Should().BeEmpty();
-        board.Backlog.Select(x => x.Id).Should().Equal(ticketId);
+        events.Should().BeEmpty();
     }
 
     [Fact]
-    public void MoveTicketInOngoingColumn_WhenBelowWipLimit_DoesNotExceedWipLimit()
+    public void MoveTicketInOngoingColumn_WhenBelowWipLimit_ReturnsOnlyTicketMovedEvent()
     {
         var ticketId = Guid.NewGuid();
         var board = new Board(Guid.NewGuid(), new WipLimit(3), [NewTicket(ticketId, TicketStatus.Todo)]);
 
-        var wipLimitExceeded = board.MoveTicketInOngoingColumn(ticketId);
+        var events = board.MoveTicketInOngoingColumn(ticketId, new DateTime(2026, 01, 01));
 
-        wipLimitExceeded.Should().BeFalse();
+        events.Should().Equal(new TicketMovedInOngoingColumn(board.Id, ticketId, new DateTime(2026, 01, 01)));
     }
 
     [Fact]
-    public void MoveTicketInOngoingColumn_WhenItFillsUpTheWipLimit_ExceedsWipLimit()
+    public void MoveTicketInOngoingColumn_WhenItFillsUpTheWipLimit_AlsoReturnsWipLimitExceededEvent()
     {
         var alreadyOngoingTicket = NewTicket(Guid.NewGuid(), TicketStatus.OnGoing);
         var incomingTicketId = Guid.NewGuid();
         var incomingTicket = NewTicket(incomingTicketId, TicketStatus.Todo);
         var board = new Board(Guid.NewGuid(), new WipLimit(1), [alreadyOngoingTicket, incomingTicket]);
 
-        var wipLimitExceeded = board.MoveTicketInOngoingColumn(incomingTicketId);
+        var events = board.MoveTicketInOngoingColumn(incomingTicketId, new DateTime(2026, 01, 01));
 
-        wipLimitExceeded.Should().BeTrue();
-        board.Ongoing.Should().HaveCount(2);
+        events.Should().Equal(
+            new TicketMovedInOngoingColumn(board.Id, incomingTicketId, new DateTime(2026, 01, 01)),
+            new WipLimitExceeded(board.Id)
+        );
     }
 
     [Fact]
-    public void MoveTicketInOngoingColumn_WhenNoWipLimitIsDefined_NeverExceedsWipLimit()
+    public void MoveTicketInOngoingColumn_WhenNoWipLimitIsDefined_NeverReturnsWipLimitExceededEvent()
     {
         var alreadyOngoingTicket = NewTicket(Guid.NewGuid(), TicketStatus.OnGoing);
         var incomingTicketId = Guid.NewGuid();
         var incomingTicket = NewTicket(incomingTicketId, TicketStatus.Todo);
         var board = new Board(Guid.NewGuid(), WipLimit.NoWipLimit(), [alreadyOngoingTicket, incomingTicket]);
 
-        var wipLimitExceeded = board.MoveTicketInOngoingColumn(incomingTicketId);
+        var events = board.MoveTicketInOngoingColumn(incomingTicketId, new DateTime(2026, 01, 01));
 
-        wipLimitExceeded.Should().BeFalse();
+        events.Should().Equal(new TicketMovedInOngoingColumn(board.Id, incomingTicketId, new DateTime(2026, 01, 01)));
     }
 
     [Fact]
-    public void MoveTicketInDoneColumn_WhenTicketIsInOngoing_MovesIt()
+    public void MoveTicketInDoneColumn_WhenTicketIsInOngoing_MovesItAndReturnsEvent()
     {
         var ticketId = Guid.NewGuid();
         var board = new Board(Guid.NewGuid(), WipLimit.NoWipLimit(), [NewTicket(ticketId, TicketStatus.OnGoing)]);
 
-        board.MoveTicketInDoneColumn(ticketId);
+        var events = board.MoveTicketInDoneColumn(ticketId, new DateTime(2026, 01, 01));
 
-        board.Ongoing.Should().BeEmpty();
-        board.Done.Select(x => x.Id).Should().Equal(ticketId);
+        events.Should().Equal(new TicketMovedInDoneColumn(board.Id, ticketId, new DateTime(2026, 01, 01)));
     }
 
     [Fact]
-    public void MoveTicketInDoneColumn_WhenTicketIsNotInOngoing_DoesNothing()
+    public void MoveTicketInDoneColumn_WhenTicketIsNotInOngoing_ReturnsNoEvents()
     {
         var ticketId = Guid.NewGuid();
         var board = new Board(Guid.NewGuid(), WipLimit.NoWipLimit(), [NewTicket(ticketId, TicketStatus.Todo)]);
 
-        board.MoveTicketInDoneColumn(ticketId);
+        var events = board.MoveTicketInDoneColumn(ticketId, new DateTime(2026, 01, 01));
 
-        board.Done.Should().BeEmpty();
-        board.Todo.Select(x => x.Id).Should().Equal(ticketId);
+        events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DefineWipLimit_ReturnsWipLimitDefinedEvent()
+    {
+        var board = new Board(Guid.NewGuid(), WipLimit.NoWipLimit(), []);
+
+        var events = board.DefineWipLimit(new WipLimit(5));
+
+        events.Should().Equal(new WipLimitDefined(board.Id, 5));
     }
 
     [Fact]
@@ -151,13 +156,26 @@ public class BoardTests
         var board = new Board(Guid.NewGuid(), WipLimit.NoWipLimit(), [alreadyOngoingTicket, incomingTicket]);
 
         board.DefineWipLimit(new WipLimit(1));
-        var wipLimitExceeded = board.MoveTicketInOngoingColumn(incomingTicketId);
+        var events = board.MoveTicketInOngoingColumn(incomingTicketId, new DateTime(2026, 01, 01));
 
-        wipLimitExceeded.Should().BeTrue();
+        events.Should().Equal(
+            new TicketMovedInOngoingColumn(board.Id, incomingTicketId, new DateTime(2026, 01, 01)),
+            new WipLimitExceeded(board.Id)
+        );
     }
 
     [Fact]
-    public void RemoveWipLimit_AllowsMovingIntoOngoingWithoutExceedingWipLimit()
+    public void RemoveWipLimit_ReturnsWipLimitRemovedEvent()
+    {
+        var board = new Board(Guid.NewGuid(), new WipLimit(1), []);
+
+        var events = board.RemoveWipLimit();
+
+        events.Should().Equal(new WipLimitRemoved(board.Id));
+    }
+
+    [Fact]
+    public void RemoveWipLimit_AllowsMovingIntoOngoingWithoutWipLimitExceededEvent()
     {
         var alreadyOngoingTicket = NewTicket(Guid.NewGuid(), TicketStatus.OnGoing);
         var incomingTicketId = Guid.NewGuid();
@@ -165,9 +183,9 @@ public class BoardTests
         var board = new Board(Guid.NewGuid(), new WipLimit(1), [alreadyOngoingTicket, incomingTicket]);
 
         board.RemoveWipLimit();
-        var wipLimitExceeded = board.MoveTicketInOngoingColumn(incomingTicketId);
+        var events = board.MoveTicketInOngoingColumn(incomingTicketId, new DateTime(2026, 01, 01));
 
-        wipLimitExceeded.Should().BeFalse();
+        events.Should().Equal(new TicketMovedInOngoingColumn(board.Id, incomingTicketId, new DateTime(2026, 01, 01)));
     }
 
     [Fact]
@@ -175,22 +193,14 @@ public class BoardTests
     {
         var board = new Board(Guid.NewGuid(), WipLimit.NoWipLimit(), []);
         var ticketId = Guid.NewGuid();
-        board.CreateTicket(ticketId, "title", "description");
+        board.CreateTicket(ticketId, "title", "description", new DateTime(2026, 01, 01));
 
-        board.MoveTicketInTodoColumn(ticketId);
-        board.Todo.Select(x => x.Id).Should().Equal(ticketId);
+        board.MoveTicketInTodoColumn(ticketId, new DateTime(2026, 01, 01)).Should().Equal(new TicketMovedInTodoColumn(board.Id, ticketId, new DateTime(2026, 01, 01)));
+        board.MoveTicketInOngoingColumn(ticketId, new DateTime(2026, 01, 01)).Should().Equal(new TicketMovedInOngoingColumn(board.Id, ticketId, new DateTime(2026, 01, 01)));
+        board.MoveTicketInDoneColumn(ticketId, new DateTime(2026, 01, 01)).Should().Equal(new TicketMovedInDoneColumn(board.Id, ticketId, new DateTime(2026, 01, 01)));
 
-        board.MoveTicketInOngoingColumn(ticketId);
-        board.Ongoing.Select(x => x.Id).Should().Equal(ticketId);
-
-        board.MoveTicketInDoneColumn(ticketId);
-        board.Done.Select(x => x.Id).Should().Equal(ticketId);
-
-        board.MoveTicketInTodoColumn(ticketId);
-        board.MoveTicketInOngoingColumn(ticketId);
-        board.Backlog.Should().BeEmpty();
-        board.Todo.Should().BeEmpty();
-        board.Ongoing.Should().BeEmpty();
-        board.Done.Select(x => x.Id).Should().Equal(ticketId);
+        board.MoveTicketInTodoColumn(ticketId, new DateTime(2026, 01, 01)).Should().BeEmpty();
+        board.MoveTicketInOngoingColumn(ticketId, new DateTime(2026, 01, 01)).Should().BeEmpty();
+        board.MoveTicketInDoneColumn(ticketId, new DateTime(2026, 01, 01)).Should().BeEmpty();
     }
 }

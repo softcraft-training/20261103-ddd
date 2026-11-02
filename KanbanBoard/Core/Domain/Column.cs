@@ -4,8 +4,6 @@ public class Column(WipLimit wipLimit, List<Ticket> tickets)
 {
     private WipLimit _wipLimit = wipLimit;
 
-    public IReadOnlyList<Ticket> Tickets => tickets;
-
     public void AddTicket(Ticket ticket)
     {
         tickets.Add(ticket);
