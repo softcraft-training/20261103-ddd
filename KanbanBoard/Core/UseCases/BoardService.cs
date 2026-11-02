@@ -1,12 +1,13 @@
 using KanbanBoard.Core.Domain;
 using KanbanBoard.Core.Domain.Events;
 using KanbanBoard.Core.UseCases.Ports;
+using IntegrationEvents;
 
 namespace KanbanBoard.Core.UseCases;
 
 public class UnknownBoardException : Exception;
 
-public class BoardService(IDatabase database, IBoardRepository boardRepository, IAlertService alertService, IClock clock)
+public class BoardService(IDatabase database, IBoardRepository boardRepository, IAlertService alertService, IClock clock, IPublisher publisher)
 {
     public Guid CreateEmptyBoard(string name)
     {
@@ -131,6 +132,18 @@ public class BoardService(IDatabase database, IBoardRepository boardRepository, 
         {
             switch (evt)
             {
+                case TicketWritten ticketWritten:
+                    publisher.Publish(new TaskCreated(ticketWritten.AggregateId, ticketWritten.TicketId, ticketWritten.At));
+                    break;
+                case TicketMovedInTodoColumn ticketMovedInTodoColumn:
+                    publisher.Publish(new TaskStatusChanged(ticketMovedInTodoColumn.AggregateId, ticketMovedInTodoColumn.TicketId, Status.Todo, ticketMovedInTodoColumn.At));
+                    break;
+                case TicketMovedInOngoingColumn ticketMovedInOngoingColumn:
+                    publisher.Publish(new TaskStatusChanged(ticketMovedInOngoingColumn.AggregateId, ticketMovedInOngoingColumn.TicketId, Status.OnGoing, ticketMovedInOngoingColumn.At));
+                    break;
+                case TicketMovedInDoneColumn ticketMovedInDoneColumn:
+                    publisher.Publish(new TaskStatusChanged(ticketMovedInDoneColumn.AggregateId, ticketMovedInDoneColumn.TicketId, Status.Done, ticketMovedInDoneColumn.At));
+                    break;
                 case WipLimitExceeded wipLimitExceeded:
                     alertService.SendAlert($"Wip limit exceeded",
                     $"Board {wipLimitExceeded.AggregateId} has reached WIP limit",

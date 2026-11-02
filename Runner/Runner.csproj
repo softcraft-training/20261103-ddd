@@ -15,6 +15,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\KanbanBoard\KanbanBoard.csproj" />
+      <ProjectReference Include="..\Reporting\Reporting.csproj" />
     </ItemGroup>
 
 </Project>

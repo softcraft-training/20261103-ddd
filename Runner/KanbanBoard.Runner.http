@@ -84,3 +84,7 @@ Accept: application/json
 
 ###
 
+GET {{host}}/api/reporting/{{boardId}}
+Accept: application/json
+
+###
